@@ -1,173 +1,146 @@
 import express from "express";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { nanoid } from "nanoid";
-import { db } from "./db.js"; // <-- our MySQL connection
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5001;
+const DATA_FILE = path.join(__dirname, "data.json");
 
-/** CORS: allow your domains */
-app.use(
-  cors({
-    origin: [
-      "https://websitebuildexample4.online",
-      "https://www.websitebuildexample4.online",
-      "http://localhost:5173", // keep for local dev
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
-  })
-);
-
+app.use(cors());
 app.use(express.json());
 
-/* --------- Routes --------- */
+// bootstrap data file
+if (!fs.existsSync(DATA_FILE)) {
+  fs.writeFileSync(
+    DATA_FILE,
+    JSON.stringify({ users: ["Adam", "Mike"], chores: [] }, null, 2)
+  );
+}
 
-// Health check (useful for testing the app URL)
-app.get("/", (_, res) => res.send("OK"));
+const readData = () => JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+const writeData = (d) =>
+  fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2));
 
-/** Get users (Adam/Mike seeded in DB) */
-app.get("/api/users", async (_, res) => {
-  try {
-    const [rows] = await db.query("SELECT name FROM users");
-    res.json(rows.map((r) => r.name));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "db error" });
-  }
+/** helpers **/
+const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
+const toYMD = (d) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const startOfWeekMon = (dateStr) => {
+  const d = new Date(dateStr);
+  const day = d.getDay(); // 0 Sun..6 Sat
+  const diff = (day === 0 ? -6 : 1) - day; // move to Monday
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+const endOfWeekSun = (dateStr) => {
+  const start = startOfWeekMon(dateStr);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return end;
+};
+
+/* ---------- Routes ---------- */
+app.get("/api/users", (_, res) => res.json(readData().users));
+
+app.get("/api/chores", (req, res) => {
+  const { start, end } = req.query; // YYYY-MM-DD
+  let { chores } = readData();
+  if (start && end)
+    chores = chores.filter((c) => c.date >= start && c.date <= end);
+  res.json(chores);
 });
 
-/** Get chores; optional weekly range ?start=YYYY-MM-DD&end=YYYY-MM-DD */
-app.get("/api/chores", async (req, res) => {
-  try {
-    const { start, end } = req.query;
-    let sql = "SELECT * FROM chores";
-    const params = [];
-    if (start && end) {
-      sql += " WHERE date BETWEEN ? AND ?";
-      params.push(start, end);
-    }
-    sql += " ORDER BY date, createdAt";
-    const [rows] = await db.query(sql, params);
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "db error" });
+app.post("/api/chores", (req, res) => {
+  const { title, assignee, type = "Other" } = req.body;
+  const date = req.body.date || req.body.dueDate;
+
+  if (!date)
+    return res.status(400).json({ error: "date (or dueDate) required" });
+  if (type !== "NoDinner" && (!title || !assignee)) {
+    return res
+      .status(400)
+      .json({ error: "title and assignee required (except NoDinner)" });
   }
+
+  // Enforce: at most 2 "NoDinner" per calendar week (Mon–Sun)
+  if (type === "NoDinner") {
+    const data = readData();
+    const start = toYMD(startOfWeekMon(date));
+    const end = toYMD(endOfWeekSun(date));
+    const countThisWeek = data.chores.filter(
+      (c) => c.type === "NoDinner" && c.date >= start && c.date <= end
+    ).length;
+    if (countThisWeek >= 2) {
+      return res.status(400).json({
+        error: "Limit reached: only 2 'Make your own' days allowed per week.",
+      });
+    }
+  }
+
+  const data = readData();
+  const newChore = {
+    id: nanoid(),
+    title: type === "NoDinner" ? "Make your own" : title,
+    assignee: type === "NoDinner" ? "" : assignee,
+    date, // YYYY-MM-DD
+    type, // Dinner | Other | NoDinner
+    done: false,
+    createdAt: new Date().toISOString(),
+  };
+  data.chores.push(newChore);
+  writeData(data);
+  res.status(201).json(newChore);
 });
 
-/** Create chore */
-app.post("/api/chores", async (req, res) => {
-  try {
-    const { title, assignee, type = "Other" } = req.body;
-    const date = req.body.date || req.body.dueDate; // backward-compat
+app.put("/api/chores/:id", (req, res) => {
+  const { id } = req.params;
+  const data = readData();
+  const i = data.chores.findIndex((c) => c.id === id);
+  if (i === -1) return res.status(404).json({ error: "Not found" });
 
-    if (!date) return res.status(400).json({ error: "date required" });
-    if (type !== "NoDinner" && (!title || !assignee)) {
-      return res
-        .status(400)
-        .json({ error: "title and assignee required (except NoDinner)" });
+  const updates = { ...req.body };
+  if (updates.dueDate && !updates.date) updates.date = updates.dueDate;
+  delete updates.dueDate;
+
+  // Re-check the 2-per-week rule if turning into / moving a NoDinner
+  const next = { ...data.chores[i], ...updates };
+  if (next.type === "NoDinner") {
+    const start = toYMD(startOfWeekMon(next.date));
+    const end = toYMD(endOfWeekSun(next.date));
+    const countThisWeek = data.chores.filter(
+      (c) =>
+        c.id !== id && c.type === "NoDinner" && c.date >= start && c.date <= end
+    ).length;
+    if (countThisWeek >= 2) {
+      return res.status(400).json({
+        error: "Limit reached: only 2 'Make your own' days allowed per week.",
+      });
     }
-
-    // Enforce: at most 2 "Make your own" per ISO week (Mon–Sun)
-    if (type === "NoDinner") {
-      const [r] = await db.query(
-        "SELECT COUNT(*) AS cnt FROM chores WHERE type='NoDinner' AND YEARWEEK(date, 1)=YEARWEEK(?, 1)",
-        [date]
-      );
-      if (r[0].cnt >= 2) {
-        return res.status(400).json({
-          error: "Limit reached: only 2 'Make your own' days allowed per week.",
-        });
-      }
-    }
-
-    const id = nanoid();
-    const finalTitle = type === "NoDinner" ? "Make your own" : title;
-    const finalAssignee = type === "NoDinner" ? "" : assignee;
-
-    await db.query(
-      "INSERT INTO chores (id, title, assignee, date, type, done) VALUES (?, ?, ?, ?, ?, ?)",
-      [id, finalTitle, finalAssignee, date, type, 0]
-    );
-
-    res.status(201).json({
-      id,
-      title: finalTitle,
-      assignee: finalAssignee,
-      date,
-      type,
-      done: 0,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "db error" });
   }
+
+  data.chores[i] = next;
+  writeData(data);
+  res.json(data.chores[i]);
 });
 
-/** Update chore (partial) */
-app.put("/api/chores/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updates = { ...req.body };
-
-    // normalize dueDate -> date
-    if (updates.dueDate && !updates.date) updates.date = updates.dueDate;
-    delete updates.dueDate;
-
-    // If changing/moving to NoDinner, re-check the 2-per-week rule
-    if (updates.type === "NoDinner" || updates.date) {
-      // fetch current record
-      const [currRows] = await db.query("SELECT * FROM chores WHERE id=?", [
-        id,
-      ]);
-      if (!currRows.length) return res.status(404).json({ error: "Not found" });
-
-      const current = currRows[0];
-      const next = { ...current, ...updates };
-      if (next.type === "NoDinner") {
-        const [r] = await db.query(
-          "SELECT COUNT(*) AS cnt FROM chores WHERE id<>? AND type='NoDinner' AND YEARWEEK(date,1)=YEARWEEK(?,1)",
-          [id, next.date]
-        );
-        if (r[0].cnt >= 2) {
-          return res.status(400).json({
-            error:
-              "Limit reached: only 2 'Make your own' days allowed per week.",
-          });
-        }
-      }
-    }
-
-    // Build dynamic SET clause
-    const set = [];
-    const vals = [];
-    for (const k of Object.keys(updates)) {
-      set.push(`${k}=?`);
-      vals.push(updates[k]);
-    }
-    if (!set.length) return res.json({ ok: true });
-
-    vals.push(id);
-    await db.query(`UPDATE chores SET ${set.join(", ")} WHERE id=?`, vals);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "db error" });
-  }
-});
-
-/** Delete chore */
-app.delete("/api/chores/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    await db.query("DELETE FROM chores WHERE id=?", [id]);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "db error" });
-  }
+app.delete("/api/chores/:id", (req, res) => {
+  const { id } = req.params;
+  const data = readData();
+  const before = data.chores.length;
+  data.chores = data.chores.filter((c) => c.id !== id);
+  if (data.chores.length === before)
+    return res.status(404).json({ error: "Not found" });
+  writeData(data);
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
