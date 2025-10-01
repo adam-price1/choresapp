@@ -1,0 +1,224 @@
+{
+  "users": [
+    "Adam",
+    "Mike"
+  ],
+  "chores": [
+    {
+      "id": "ASTMzaTpBoLpQSyrSgvLf",
+      "title": "Dinner",
+      "assignee": "Adam",
+      "date": "2025-10-01",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T08:30:34.308Z"
+    },
+    {
+      "id": "MoIdd6sJx_hTTDvcKmzFO",
+      "title": "Dinner",
+      "assignee": "Adam",
+      "date": "2025-10-02",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T08:30:37.827Z"
+    },
+    {
+      "id": "8Nu0HI_yrAvtXFux96lt-",
+      "title": "Dinner",
+      "assignee": "Adam",
+      "date": "2025-10-05",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T08:30:40.995Z"
+    },
+    {
+      "id": "xDTGdULb8BTwZRzAanBr_",
+      "title": "a",
+      "assignee": "Mike",
+      "date": "2025-10-03",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T08:31:42.035Z"
+    },
+    {
+      "id": "H0lpZ2y-rOtFbAeBZg3A1",
+      "title": "Dinner",
+      "assignee": "Mike",
+      "date": "2025-10-04",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T08:31:45.123Z"
+    },
+    {
+      "id": "L1kUi4X5XAKID8PjYCzxK",
+      "title": "Dinner",
+      "assignee": "Mike",
+      "date": "2025-09-30",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T08:31:54.939Z"
+    },
+    {
+      "id": "0mArvZXzIdiCKQqJj540H",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-30",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:19.243Z"
+    },
+    {
+      "id": "3cxaCC8KW3rYtlhGEkDTR",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-30",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:21.043Z"
+    },
+    {
+      "id": "dm9iwOfzsKTWUuINHC7gU",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-03",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:33.003Z"
+    },
+    {
+      "id": "PxAGvzKrxr5rUyc0xvclN",
+      "title": "Dinner",
+      "assignee": "Mike",
+      "date": "2025-09-03",
+      "type": "Dinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:36.595Z"
+    },
+    {
+      "id": "BlNelMZCdhSWH3j6A-EZk",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-03",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:37.226Z"
+    },
+    {
+      "id": "QQeuwhDQZ_br4ULRsS7_M",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-03",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:37.642Z"
+    },
+    {
+      "id": "ghLMe2ea8rIG_l5ni4R7w",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-03",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:39.563Z"
+    },
+    {
+      "id": "6ONwDTtJhQJ7NFBifa1YJ",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-03",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:40.130Z"
+    },
+    {
+      "id": "isaZQU7m0HqNRV6eqLAUv",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-09-03",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:40.658Z"
+    },
+    {
+      "id": "Sln7P9GMWz-RTF5udruKZ",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-10-03",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:32:48.394Z"
+    },
+    {
+      "id": "MVZvGfoLpexjiSlWLjMd1",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-10-01",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T08:36:39.452Z"
+    },
+    {
+      "id": "aSR9EsyV2zXPRUzXV4FqB",
+      "title": "Chicken",
+      "assignee": "Mike",
+      "date": "2025-10-07",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T09:32:02.608Z"
+    },
+    {
+      "id": "xWummFz9NeGnmc7PWJmzg",
+      "title": "Pasta",
+      "assignee": "Adam",
+      "date": "2025-10-08",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T09:32:18.718Z"
+    },
+    {
+      "id": "iWKn-LqQCxBLSx3sywKzv",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-10-09",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T09:34:14.790Z"
+    },
+    {
+      "id": "_AKaWaSpIADnXjvWIt5wE",
+      "title": "No Dinner",
+      "assignee": "",
+      "date": "2025-10-10",
+      "type": "NoDinner",
+      "done": false,
+      "createdAt": "2025-10-01T09:34:22.054Z"
+    },
+    {
+      "id": "bcP7E7367ZAVbf_p0-O4n",
+      "title": "Dinner",
+      "assignee": "Mike",
+      "date": "2025-10-11",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T09:35:15.471Z"
+    },
+    {
+      "id": "CTubTJYPeyUlbyOgZIDqN",
+      "title": "Dinner",
+      "assignee": "Mike",
+      "date": "2025-10-12",
+      "type": "Dinner",
+      "done": true,
+      "createdAt": "2025-10-01T09:35:18.334Z"
+    },
+    {
+      "id": "YvKEgqX615V0LJYLqpE1u",
+      "title": "Clean dishes",
+      "assignee": "Mike",
+      "date": "2025-10-09",
+      "type": "Other",
+      "done": true,
+      "createdAt": "2025-10-01T09:35:41.584Z"
+    }
+  ]
+}
