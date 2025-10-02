@@ -3,6 +3,8 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import cors from "cors";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,7 +17,6 @@ function readData() {
     const txt = fs.readFileSync(DATA_FILE, "utf8");
     const db = JSON.parse(txt);
 
-    // ✅ Ensure all required arrays exist
     if (!db.users) db.users = ["Adam", "Mike"];
     if (!db.chores) db.chores = [];
     if (!db.comments) db.comments = [];
@@ -32,9 +33,20 @@ function writeData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
+// ---- Express setup ----
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ---- Cloudinary config ----
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Multer for local temp upload
+const upload = multer({ dest: "uploads/" });
 
 // ---- Health check ----
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
@@ -83,23 +95,40 @@ app.delete("/api/chores/:id", (req, res) => {
 // ---- Comments ----
 app.get("/api/comments", (_req, res) => res.json(readData().comments));
 
-app.post("/api/comments", (req, res) => {
-  const db = readData();
-  if (!db.comments) db.comments = []; // ✅ always defined
+app.post("/api/comments", upload.single("photo"), async (req, res) => {
+  try {
+    const db = readData();
+    if (!db.comments) db.comments = [];
 
-  const comment = {
-    id: Math.random().toString(36).slice(2),
-    createdAt: new Date().toISOString(),
-    name: req.body.name ?? "",
-    anonymous: !!req.body.anonymous,
-    text: req.body.text ?? "",
-    date: req.body.date ?? new Date().toISOString().slice(0, 10),
-    photoUrl: req.body.photo || null, // frontend sends Cloudinary URL
-  };
+    let photoUrl = null;
+    if (req.file) {
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "chores-app",
+        upload_preset: process.env.VITE_CLOUD_PRESET, // preset from frontend
+      });
+      photoUrl = result.secure_url;
+      fs.unlinkSync(req.file.path); // cleanup local temp file
+    }
 
-  db.comments.push(comment);
-  writeData(db);
-  res.json(comment);
+    const comment = {
+      id: Math.random().toString(36).slice(2),
+      createdAt: new Date().toISOString(),
+      name: req.body.name ?? "",
+      anonymous:
+        req.body.isAnonymous === "true" || req.body.anonymous === "true",
+      text: req.body.text ?? "",
+      date: req.body.date ?? new Date().toISOString().slice(0, 10),
+      photoUrl,
+    };
+
+    db.comments.push(comment);
+    writeData(db);
+    res.json(comment);
+  } catch (err) {
+    console.error("Upload failed:", err);
+    res.status(500).json({ error: "Upload failed" });
+  }
 });
 
 // ---- Start server ----
