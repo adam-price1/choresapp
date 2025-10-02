@@ -7,21 +7,21 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
 
-// ---------------- Setup ----------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_FILE = path.join(__dirname, "data.json");
 
-const upload = multer({ storage: multer.memoryStorage() }); // keep uploads in memory
-
-// Cloudinary config (from .env)
+// ---- Setup Cloudinary ----
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ---------------- JSON Helpers ----------------
+// Multer for file upload
+const upload = multer({ dest: "uploads/" });
+
+// ---- Helpers for JSON storage ----
 function readData() {
   try {
     const txt = fs.readFileSync(DATA_FILE, "utf8");
@@ -36,16 +36,16 @@ function readData() {
     return seed;
   }
 }
+
 function writeData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// ---------------- App ----------------
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ---- Health ----
+// ---- Health check ----
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 // ---- Users ----
@@ -89,39 +89,30 @@ app.delete("/api/chores/:id", (req, res) => {
   res.json({ success: true });
 });
 
-// ---- Comments (with optional photo) ----
+// ---- Comments with optional photo ----
 app.get("/api/comments", (_req, res) => res.json(readData().comments));
 
 app.post("/api/comments", upload.single("photo"), async (req, res) => {
   const db = readData();
-  if (!db.comments) db.comments = [];
-
   let photoUrl = null;
 
   try {
     if (req.file) {
-      // Convert buffer → base64 string
-      const b64 = Buffer.from(req.file.buffer).toString("base64");
-      const dataURI = `data:${req.file.mimetype};base64,${b64}`;
-
-      // Upload to Cloudinary
-      const result = await cloudinary.uploader.upload(dataURI, {
-        folder: "chores-comments",
-        resource_type: "image",
+      const uploadRes = await cloudinary.uploader.upload(req.file.path, {
+        folder: "chores-app",
       });
-
-      photoUrl = result.secure_url;
+      photoUrl = uploadRes.secure_url;
+      fs.unlinkSync(req.file.path); // cleanup temp file
     }
   } catch (err) {
-    console.error("Cloudinary upload failed:", err);
-    return res.status(500).json({ error: "Image upload failed" });
+    console.error("Image upload failed:", err);
   }
 
   const comment = {
     id: Math.random().toString(36).slice(2),
     createdAt: new Date().toISOString(),
     name: req.body.name ?? "",
-    anonymous: !!req.body.anonymous,
+    anonymous: req.body.isAnonymous === "true" || req.body.anonymous === "true",
     text: req.body.text ?? "",
     date: req.body.date ?? new Date().toISOString().slice(0, 10),
     photoUrl,
@@ -132,7 +123,7 @@ app.post("/api/comments", upload.single("photo"), async (req, res) => {
   res.json(comment);
 });
 
-// ---------------- Start ----------------
+// ---- Start server ----
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`✅ Server running on http://localhost:${PORT}`)
