@@ -69,7 +69,7 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [comments, setComments] = useState([]);
 
-  // add form
+  // add task form
   const [form, setForm] = useState({
     title: "",
     assignee: "Adam",
@@ -141,21 +141,19 @@ export default function App() {
 
   /** Make-your-own day (NoDinner), capped 4 per current week */
   const makeOwnDay = async (date) => {
-    const start = range.start;
-    const end = range.end;
     const countThisWeek = tasks.filter(
-      (t) => t.type === "NoDinner" && t.date >= start && t.date <= end
+      (t) =>
+        t.type === "NoDinner" && t.date >= range.start && t.date <= range.end
     ).length;
     if (countThisWeek >= 4) {
       alert("Limit: only 4 'Make your own' days allowed per week.");
       return;
     }
-    const res = await api.chores.create({
+    await api.chores.create({
       date,
       type: "NoDinner",
       title: "Make your own",
     });
-    if (res?.error) alert(res.error);
     await refreshTasks();
   };
 
@@ -198,31 +196,7 @@ export default function App() {
     }
   };
 
-  /** Get Recipe for a meal name */
-  const getRecipe = async (mealTitle) => {
-    const q = (mealTitle || "Dinner").trim();
-    try {
-      const data = await api.recipe(q);
-      if (data?.strMeal) {
-        const pieces = [];
-        pieces.push(`🍽 ${data.strMeal}`);
-        if (data.strArea) pieces.push(`(${data.strArea})`);
-        if (data.strCategory) pieces.push(`• ${data.strCategory}`);
-        const head = pieces.join(" ");
-        const steps = data.strInstructions
-          ? data.strInstructions.slice(0, 500) +
-            (data.strInstructions.length > 500 ? "..." : "")
-          : "No instructions provided.";
-        alert(`${head}\n\n${steps}`);
-      } else {
-        alert("No recipe found.");
-      }
-    } catch {
-      alert("Recipe lookup failed.");
-    }
-  };
-
-  /** ====== Derived views ====== */
+  /** Derived views */
   const tasksByDate = useMemo(() => {
     const map = {};
     for (const d of weekDays) map[toYMD(d)] = [];
@@ -232,6 +206,14 @@ export default function App() {
     }
     return map;
   }, [tasks, weekDays]);
+
+  const noDinnerCountThisWeek = useMemo(() => {
+    return tasks.filter(
+      (t) =>
+        t.type === "NoDinner" && t.date >= range.start && t.date <= range.end
+    ).length;
+  }, [tasks, range.start, range.end]);
+  const noDinnerDisabled = noDinnerCountThisWeek >= 4;
 
   const commentsByDate = useMemo(() => {
     const map = {};
@@ -279,6 +261,7 @@ export default function App() {
               <option>Other</option>
             </select>
           </label>
+
           <label>
             Title
             <input
@@ -289,6 +272,7 @@ export default function App() {
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
           </label>
+
           <label>
             Assign to
             <select
@@ -303,6 +287,7 @@ export default function App() {
               ))}
             </select>
           </label>
+
           <label>
             Date
             <input
@@ -312,6 +297,7 @@ export default function App() {
             />
           </label>
         </div>
+
         <div className="row">
           <button className="btn">Add</button>
           <button
@@ -328,6 +314,7 @@ export default function App() {
       {/* Comments */}
       <section className="card">
         <h2>💬 Leave a Comment (optional photo)</h2>
+        {/* comment form ... */}
         <div className="grid-4">
           <label>
             Date
@@ -377,6 +364,7 @@ export default function App() {
             />
           </label>
         </div>
+
         <label>
           Comment
           <textarea
@@ -387,6 +375,7 @@ export default function App() {
             }
           />
         </label>
+
         <button className="btn" onClick={submitComment}>
           Post Comment
         </button>
