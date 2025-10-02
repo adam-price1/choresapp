@@ -1,4 +1,5 @@
 {
   "users": ["Adam", "Mike"],
-  "chores": []
+  "chores": [],
+  "comments": []
 }

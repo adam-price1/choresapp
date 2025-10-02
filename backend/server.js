@@ -9,18 +9,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_FILE = path.join(__dirname, "data.json");
 
-// ---- tiny JSON store helpers ----
+// ---- Helpers for JSON storage ----
 function readData() {
   try {
     const txt = fs.readFileSync(DATA_FILE, "utf8");
-    return JSON.parse(txt);
+    const db = JSON.parse(txt);
+
+    // ✅ Ensure all required arrays exist
+    if (!db.users) db.users = ["Adam", "Mike"];
+    if (!db.chores) db.chores = [];
+    if (!db.comments) db.comments = [];
+
+    return db;
   } catch {
-    // first run: create file
     const seed = { users: ["Adam", "Mike"], chores: [], comments: [] };
     fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
     return seed;
   }
 }
+
 function writeData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
@@ -29,18 +36,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ---- health ----
+// ---- Health check ----
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-// ---- users ----
+// ---- Users ----
 app.get("/api/users", (_req, res) => res.json(readData().users));
 
-// ---- chores ----
+// ---- Chores ----
 app.get("/api/chores", (req, res) => {
   const { start, end } = req.query;
   let items = readData().chores;
-  if (start && end)
+  if (start && end) {
     items = items.filter((t) => t.date >= start && t.date <= end);
+  }
   res.json(items);
 });
 
@@ -72,25 +80,30 @@ app.delete("/api/chores/:id", (req, res) => {
   res.json({ success: true });
 });
 
-// ---- comments ----
+// ---- Comments ----
 app.get("/api/comments", (_req, res) => res.json(readData().comments));
+
 app.post("/api/comments", (req, res) => {
   const db = readData();
+  if (!db.comments) db.comments = []; // ✅ always defined
+
   const comment = {
     id: Math.random().toString(36).slice(2),
     createdAt: new Date().toISOString(),
     name: req.body.name ?? "",
-    isAnonymous: !!req.body.isAnonymous,
+    anonymous: !!req.body.anonymous,
     text: req.body.text ?? "",
     date: req.body.date ?? new Date().toISOString().slice(0, 10),
-    photo: req.body.photo || null, // frontend already uploads to Cloudinary
+    photoUrl: req.body.photo || null, // frontend sends Cloudinary URL
   };
+
   db.comments.push(comment);
   writeData(db);
   res.json(comment);
 });
 
+// ---- Start server ----
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
-  console.log(`Server running on http://localhost:${PORT}`)
+  console.log(`✅ Server running on http://localhost:${PORT}`)
 );
