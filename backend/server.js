@@ -7,20 +7,29 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
 
+// ===== Setup =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_FILE = path.join(__dirname, "data.json");
 
-// ---- Helpers for JSON storage ----
+// Cloudinary config (from your .env)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Multer (for parsing uploads)
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ===== Helpers for JSON store =====
 function readData() {
   try {
     const txt = fs.readFileSync(DATA_FILE, "utf8");
     const db = JSON.parse(txt);
-
     if (!db.users) db.users = ["Adam", "Mike"];
     if (!db.chores) db.chores = [];
     if (!db.comments) db.comments = [];
-
     return db;
   } catch {
     const seed = { users: ["Adam", "Mike"], chores: [], comments: [] };
@@ -28,25 +37,14 @@ function readData() {
     return seed;
   }
 }
-
 function writeData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// ---- Express setup ----
+// ===== App =====
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// ---- Cloudinary config ----
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// Multer for local temp upload
-const upload = multer({ dest: "uploads/" });
 
 // ---- Health check ----
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
@@ -92,46 +90,64 @@ app.delete("/api/chores/:id", (req, res) => {
   res.json({ success: true });
 });
 
-// ---- Comments ----
+// ---- Comments (with optional photo upload) ----
 app.get("/api/comments", (_req, res) => res.json(readData().comments));
 
 app.post("/api/comments", upload.single("photo"), async (req, res) => {
-  try {
-    const db = readData();
-    if (!db.comments) db.comments = [];
+  const db = readData();
+  if (!db.comments) db.comments = [];
 
-    let photoUrl = null;
-    if (req.file) {
-      // Upload to Cloudinary
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "chores-app",
-        upload_preset: process.env.VITE_CLOUD_PRESET, // preset from frontend
-      });
-      photoUrl = result.secure_url;
-      fs.unlinkSync(req.file.path); // cleanup local temp file
+  let photoUrl = null;
+  if (req.file) {
+    try {
+      // upload buffer to cloudinary
+      const uploadResult = await cloudinary.uploader.upload_stream(
+        { resource_type: "image" },
+        (error, result) => {
+          if (error) console.error("Cloudinary upload error:", error);
+          photoUrl = result?.secure_url || null;
+
+          // Save comment once upload done
+          const comment = {
+            id: Math.random().toString(36).slice(2),
+            createdAt: new Date().toISOString(),
+            name: req.body.name ?? "",
+            anonymous: !!req.body.anonymous,
+            text: req.body.text ?? "",
+            date: req.body.date ?? new Date().toISOString().slice(0, 10),
+            photoUrl,
+          };
+          db.comments.push(comment);
+          writeData(db);
+          res.json(comment);
+        }
+      );
+
+      // Pipe file buffer into Cloudinary upload
+      uploadResult.end(req.file.buffer);
+      return;
+    } catch (err) {
+      return res.status(500).json({ error: "Photo upload failed" });
     }
-
-    const comment = {
-      id: Math.random().toString(36).slice(2),
-      createdAt: new Date().toISOString(),
-      name: req.body.name ?? "",
-      anonymous:
-        req.body.isAnonymous === "true" || req.body.anonymous === "true",
-      text: req.body.text ?? "",
-      date: req.body.date ?? new Date().toISOString().slice(0, 10),
-      photoUrl,
-    };
-
-    db.comments.push(comment);
-    writeData(db);
-    res.json(comment);
-  } catch (err) {
-    console.error("Upload failed:", err);
-    res.status(500).json({ error: "Upload failed" });
   }
+
+  // If no photo
+  const comment = {
+    id: Math.random().toString(36).slice(2),
+    createdAt: new Date().toISOString(),
+    name: req.body.name ?? "",
+    anonymous: !!req.body.anonymous,
+    text: req.body.text ?? "",
+    date: req.body.date ?? new Date().toISOString().slice(0, 10),
+    photoUrl: null,
+  };
+
+  db.comments.push(comment);
+  writeData(db);
+  res.json(comment);
 });
 
-// ---- Start server ----
+// ===== Start server =====
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`✅ Server running on http://localhost:${PORT}`)
