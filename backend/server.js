@@ -3,6 +3,8 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import cors from "cors";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,7 +17,6 @@ function readData() {
     const txt = fs.readFileSync(DATA_FILE, "utf8");
     return JSON.parse(txt);
   } catch {
-    // first run: create file
     const seed = { users: ["Adam", "Mike"], chores: [], comments: [] };
     fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
     return seed;
@@ -29,6 +30,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ---- Cloudinary config ----
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Multer for local temp file handling
+const upload = multer({ dest: "uploads/" });
+
 // ---- health ----
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
@@ -39,8 +50,9 @@ app.get("/api/users", (_req, res) => res.json(readData().users));
 app.get("/api/chores", (req, res) => {
   const { start, end } = req.query;
   let items = readData().chores;
-  if (start && end)
+  if (start && end) {
     items = items.filter((t) => t.date >= start && t.date <= end);
+  }
   res.json(items);
 });
 
@@ -72,25 +84,42 @@ app.delete("/api/chores/:id", (req, res) => {
   res.json({ success: true });
 });
 
-// ---- comments (client supplies photoUrl if any) ----
+// ---- comments (with optional photo upload) ----
 app.get("/api/comments", (_req, res) => res.json(readData().comments));
-app.post("/api/comments", (req, res) => {
+
+app.post("/api/comments", upload.single("photo"), async (req, res) => {
   const db = readData();
+  let photoUrl = null;
+
+  try {
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "chores-comments",
+      });
+      photoUrl = result.secure_url;
+      fs.unlinkSync(req.file.path); // clean temp file
+    }
+  } catch (err) {
+    console.error("Cloudinary upload failed:", err.message);
+  }
+
   const comment = {
     id: Math.random().toString(36).slice(2),
     createdAt: new Date().toISOString(),
     name: req.body.name ?? "",
-    anonymous: !!req.body.anonymous,
+    anonymous: req.body.isAnonymous === "true" || req.body.isAnonymous === true,
     text: req.body.text ?? "",
     date: req.body.date ?? new Date().toISOString().slice(0, 10),
-    photoUrl: req.body.photoUrl || null,
+    photoUrl,
   };
+
   db.comments.push(comment);
   writeData(db);
   res.json(comment);
 });
 
+// ---- server ----
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
-  console.log(`Server running on http://localhost:${PORT}`)
+  console.log(`✅ Server running on http://localhost:${PORT}`)
 );

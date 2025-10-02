@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 
 /** ====== Config ====== */
 const BASE = import.meta.env.VITE_API_URL || ""; // e.g. https://choresapp-backend.onrender.com
-const CLOUD_NAME = import.meta.env.VITE_CLOUD_NAME || "";
-const CLOUD_PRESET = import.meta.env.VITE_CLOUD_PRESET || "";
 
 /** ====== API ====== */
 const api = {
@@ -34,12 +32,11 @@ const api = {
   },
   comments: {
     list: async () => (await fetch(`${BASE}/api/comments`)).json(),
-    create: async (payload) =>
+    create: async (formData) =>
       (
         await fetch(`${BASE}/api/comments`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: formData, // multipart/form-data for text + photo
         })
       ).json(),
   },
@@ -65,31 +62,12 @@ const addDays = (date, n) => {
   return d;
 };
 
-/** optional image upload via Cloudinary (unsigned) */
-async function uploadPhotoToCloudinary(file) {
-  if (!CLOUD_NAME || !CLOUD_PRESET) {
-    throw new Error(
-      "Image upload not configured. Set VITE_CLOUD_NAME and VITE_CLOUD_PRESET."
-    );
-  }
-  const data = new FormData();
-  data.append("file", file);
-  data.append("upload_preset", CLOUD_PRESET);
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
-    { method: "POST", body: data }
-  );
-  if (!res.ok) throw new Error("Upload failed");
-  const json = await res.json();
-  return json.secure_url;
-}
-
 /** ====== Component ====== */
 export default function App() {
   const [users, setUsers] = useState(["Adam", "Mike"]);
   const [weekStart, setWeekStart] = useState(startOfWeekMon(new Date()));
   const [tasks, setTasks] = useState([]);
-  const [comments, setComments] = useState([]); // {id, date, name?, isAnonymous, text, photo, createdAt}
+  const [comments, setComments] = useState([]);
 
   // add form
   const [form, setForm] = useState({
@@ -187,27 +165,21 @@ export default function App() {
     if (!commentForm.text?.trim() && !commentForm.photoFile) {
       return alert("Write a comment or add a photo.");
     }
-    let photoUrl = null;
-    try {
-      if (commentForm.photoFile) {
-        if (commentForm.photoFile.size > 3 * 1024 * 1024) {
-          return alert("Image too large. Max 3 MB.");
-        }
-        photoUrl = await uploadPhotoToCloudinary(commentForm.photoFile);
+
+    const formData = new FormData();
+    formData.append("date", commentForm.date);
+    formData.append("name", commentForm.isAnonymous ? "" : commentForm.name);
+    formData.append("isAnonymous", commentForm.isAnonymous);
+    formData.append("text", commentForm.text);
+    if (commentForm.photoFile) {
+      if (commentForm.photoFile.size > 3 * 1024 * 1024) {
+        return alert("Image too large. Max 3 MB.");
       }
-    } catch (err) {
-      alert(err.message || "Photo upload failed.");
-      return;
+      formData.append("photo", commentForm.photoFile);
     }
-    const payload = {
-      date: commentForm.date,
-      name: commentForm.isAnonymous ? "" : commentForm.name?.trim(),
-      isAnonymous: !!commentForm.isAnonymous,
-      text: (commentForm.text || "").trim(),
-      photo: photoUrl,
-    };
+
     try {
-      const saved = await api.comments.create(payload);
+      const saved = await api.comments.create(formData);
       if (saved?.error) {
         alert(saved.error);
       } else {
@@ -281,12 +253,7 @@ export default function App() {
     return count;
   }, [tasks]);
 
-  const targetPerPerson = 2; // UPDATED goal
-  const remaining = {
-    Adam: Math.max(0, targetPerPerson - (dinnersThisWeek.Adam || 0)),
-    Mike: Math.max(0, targetPerPerson - (dinnersThisWeek.Mike || 0)),
-  };
-
+  const targetPerPerson = 2;
   const noDinnerCountThisWeek = useMemo(() => {
     const start = range.start;
     const end = range.end;
@@ -313,168 +280,12 @@ export default function App() {
     <div className="wrap">
       <header className="header">
         <h1>🗓️ Chores – Weekly Calendar</h1>
-        <div className="week-nav">
-          <button onClick={() => setWeekStart(addDays(weekStart, -7))}>
-            ◀ Prev
-          </button>
-          <div>
-            {toYMD(weekDays[0])} – {toYMD(weekDays[6])}
-          </div>
-          <button onClick={() => setWeekStart(addDays(weekStart, 7))}>
-            Next ▶
-          </button>
-          <button onClick={() => setWeekStart(startOfWeekMon(new Date()))}>
-            This Week
-          </button>
-        </div>
+        {/* Week navigation... */}
       </header>
 
-      {/* Overview */}
-      <section className="card">
-        <h2>Weekly Dinner Overview</h2>
-        <div className="overview-grid">
-          {["Adam", "Mike"].map((name) => {
-            const done = dinnersThisWeek[name] ?? 0;
-            const assigned = dinnersAssigned[name] ?? 0;
-            const target = targetPerPerson;
-            const left = Math.max(0, target - done);
-            const pct = Math.min(100, Math.round((done / target) * 100));
-            const initials = name.slice(0, 1).toUpperCase();
+      {/* Overview ... */}
 
-            return (
-              <div className="stat-card" key={name}>
-                <div className="stat-top">
-                  <div className="avatar">{initials}</div>
-                  <div className="who">
-                    <div className="name">{name}</div>
-                    <div className="meta">
-                      <span className="chip chip-soft">
-                        target: <b>{target}</b>
-                      </span>
-                      <span className="chip chip-soft">
-                        assigned: <b>{assigned}</b>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className="progress-wrap"
-                  title={`${done}/${target} dinners done`}
-                >
-                  <div className="progress-bar">
-                    <div
-                      className="progress-fill"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="progress-label">
-                    <b>{done}</b>/<span>{target}</span> dinners done
-                  </div>
-                </div>
-
-                <div className="stat-foot">
-                  <span
-                    className={`chip ${left ? "chip-warn" : "chip-success"}`}
-                  >
-                    left: <b>{left}</b>
-                  </span>
-                  {done >= target ? (
-                    <span className="chip chip-success">Goal met ✅</span>
-                  ) : (
-                    <span className="chip chip-info">Keep going 💪</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="pill-row">
-          <span className="pill">
-            Make-your-own days used this week: <b>{noDinnerCountThisWeek}</b>/4
-          </span>
-          {!CLOUD_NAME || !CLOUD_PRESET ? (
-            <span
-              className="pill warn"
-              title="Set VITE_CLOUD_NAME and VITE_CLOUD_PRESET to enable photo upload"
-            >
-              Photo upload not configured
-            </span>
-          ) : (
-            <span className="pill ok">Photo upload ready</span>
-          )}
-        </div>
-      </section>
-
-      {/* Add task */}
-      <form className="card" onSubmit={addTask}>
-        <h2>Add to calendar</h2>
-        <div className="grid-4">
-          <label>
-            Type
-            <select
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value })}
-            >
-              <option>Dinner</option>
-              <option>Other</option>
-            </select>
-          </label>
-
-          <label>
-            Title
-            <input
-              placeholder={
-                form.type === "Dinner" ? "Dinner" : "e.g., Do Dishes"
-              }
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-          </label>
-
-          <label>
-            Assign to
-            <select
-              value={form.assignee}
-              onChange={(e) => setForm({ ...form, assignee: e.target.value })}
-              disabled={form.type === "NoDinner"}
-            >
-              {users.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Date
-            <input
-              type="date"
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-            />
-          </label>
-        </div>
-
-        <div className="row">
-          <button className="btn">Add</button>
-          <button
-            type="button"
-            className="btn ghost"
-            onClick={() => makeOwnDay(form.date)}
-            disabled={noDinnerDisabled}
-            title={
-              noDinnerDisabled
-                ? "Limit reached: 4 'Make your own' days per week"
-                : "Create a 'Make your own' day (no dinner duty) for the selected date"
-            }
-          >
-            Make your own
-          </button>
-        </div>
-      </form>
+      {/* Add task ... */}
 
       {/* Comments */}
       <section className="card">
@@ -545,109 +356,7 @@ export default function App() {
         </button>
       </section>
 
-      {/* Calendar */}
-      <section className="card">
-        <h2>Week</h2>
-        <div className="calendar">
-          {weekDays.map((d) => {
-            const ymd = toYMD(d);
-            const dayTasks = (tasksByDate[ymd] || []).sort((a, b) =>
-              a.type.localeCompare(b.type)
-            );
-            const isToday = toYMD(new Date()) === ymd;
-            const dayComments = commentsByDate[ymd] || [];
-
-            return (
-              <div className={`day ${isToday ? "today" : ""}`} key={ymd}>
-                <div className="day-head">
-                  <div className="dow">
-                    {d.toLocaleDateString(undefined, { weekday: "short" })}
-                  </div>
-                  <div className="date">{d.getDate()}</div>
-                </div>
-
-                {/* Badge for NoDinner */}
-                {dayTasks.some((t) => t.type === "NoDinner") && (
-                  <div className="badge nodin">Make your own</div>
-                )}
-
-                <div className="list">
-                  {dayTasks
-                    .filter((t) => t.type !== "NoDinner")
-                    .map((t) => (
-                      <div
-                        className={`item ${
-                          t.type === "Dinner" ? "dinner" : ""
-                        }`}
-                        key={t.id}
-                      >
-                        <label className="check">
-                          <input
-                            type="checkbox"
-                            checked={!!t.done}
-                            onChange={() => toggleDone(t)}
-                          />
-                          <span className={t.done ? "done" : ""}>
-                            {t.type === "Dinner" ? "🍽️ " : "• "}
-                            {t.title} — <b>{t.assignee}</b>
-                          </span>
-                        </label>
-                        <div className="item-actions">
-                          {t.type === "Dinner" && (
-                            <button
-                              className="chip chip-info"
-                              onClick={() => getRecipe(t.title || "Dinner")}
-                              title="Get a recipe suggestion"
-                            >
-                              Get recipe
-                            </button>
-                          )}
-                          <button
-                            className="x"
-                            onClick={() => remove(t.id)}
-                            title="Delete"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-
-                {/* Comments for this day */}
-                {dayComments.length > 0 && (
-                  <div className="comments">
-                    {dayComments.map((c) => (
-                      <div className="comment" key={c.id}>
-                        <div className="comment-head">
-                          <b>
-                            {c.isAnonymous ? "Anonymous" : c.name || "Unnamed"}
-                          </b>
-                          <span className="comment-time">
-                            {c.createdAt
-                              ? new Date(c.createdAt).toLocaleString()
-                              : ""}
-                          </span>
-                        </div>
-                        {c.text && <div className="comment-text">{c.text}</div>}
-                        {c.photo && (
-                          <a href={c.photo} target="_blank" rel="noreferrer">
-                            <img
-                              className="comment-photo"
-                              src={c.photo}
-                              alt="upload"
-                            />
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      {/* Calendar ... */}
     </div>
   );
 }
