@@ -3,24 +3,22 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import cors from "cors";
-import multer from "multer";
-import fetch from "node-fetch";
-import { v2 as cloudinary } from "cloudinary";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// ✅ Fixed path (works on Render)
 const DATA_FILE = path.join(__dirname, "data.json");
 
-// 🧠 Load or initialize
+// ---- tiny JSON store helpers ----
 function readData() {
   try {
-    const text = fs.readFileSync(DATA_FILE, "utf8");
-    return JSON.parse(text);
+    const txt = fs.readFileSync(DATA_FILE, "utf8");
+    return JSON.parse(txt);
   } catch {
-    return { chores: [], comments: [], users: ["Adam", "Mike"] };
+    // first run: create file
+    const seed = { users: ["Adam", "Mike"], chores: [], comments: [] };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
+    return seed;
   }
 }
 function writeData(data) {
@@ -31,93 +29,67 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Configure Cloudinary (optional)
-cloudinary.config({
-  cloud_name: process.env.VITE_CLOUD_NAME,
-  api_key: process.env.VITE_CLOUD_KEY,
-  api_secret: process.env.VITE_CLOUD_SECRET,
-});
+// ---- health ----
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-const upload = multer({ dest: "uploads/" });
+// ---- users ----
+app.get("/api/users", (_req, res) => res.json(readData().users));
 
-/* ---------- API ROUTES ---------- */
-
-app.get("/api/users", (req, res) => {
-  const data = readData();
-  res.json(data.users);
-});
-
+// ---- chores ----
 app.get("/api/chores", (req, res) => {
-  const data = readData();
   const { start, end } = req.query;
-  let filtered = data.chores;
-  if (start && end) {
-    filtered = filtered.filter((t) => t.date >= start && t.date <= end);
-  }
-  res.json(filtered);
+  let items = readData().chores;
+  if (start && end)
+    items = items.filter((t) => t.date >= start && t.date <= end);
+  res.json(items);
 });
 
 app.post("/api/chores", (req, res) => {
-  const data = readData();
-  const newItem = {
+  const db = readData();
+  const item = {
     id: Math.random().toString(36).slice(2),
     createdAt: new Date().toISOString(),
     ...req.body,
   };
-  data.chores.push(newItem);
-  writeData(data);
-  res.json(newItem);
+  db.chores.push(item);
+  writeData(db);
+  res.json(item);
 });
 
 app.put("/api/chores/:id", (req, res) => {
-  const data = readData();
-  const t = data.chores.find((x) => x.id === req.params.id);
+  const db = readData();
+  const t = db.chores.find((x) => x.id === req.params.id);
   if (!t) return res.status(404).json({ error: "Not found" });
   Object.assign(t, req.body);
-  writeData(data);
+  writeData(db);
   res.json(t);
 });
 
 app.delete("/api/chores/:id", (req, res) => {
-  const data = readData();
-  data.chores = data.chores.filter((x) => x.id !== req.params.id);
-  writeData(data);
+  const db = readData();
+  db.chores = db.chores.filter((x) => x.id !== req.params.id);
+  writeData(db);
   res.json({ success: true });
 });
 
-// 💬 Comment endpoint (with optional photo upload)
-app.post("/api/comments", upload.single("photo"), async (req, res) => {
-  const data = readData();
-  let photoUrl = null;
-
-  if (
-    req.file &&
-    process.env.VITE_CLOUD_NAME &&
-    process.env.VITE_CLOUD_PRESET
-  ) {
-    try {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        upload_preset: process.env.VITE_CLOUD_PRESET,
-      });
-      photoUrl = result.secure_url;
-      fs.unlinkSync(req.file.path);
-    } catch (e) {
-      console.error("Cloudinary error:", e.message);
-    }
-  }
-
-  const newComment = {
+// ---- comments (client supplies photoUrl if any) ----
+app.get("/api/comments", (_req, res) => res.json(readData().comments));
+app.post("/api/comments", (req, res) => {
+  const db = readData();
+  const comment = {
     id: Math.random().toString(36).slice(2),
     createdAt: new Date().toISOString(),
-    ...req.body,
-    photoUrl,
+    name: req.body.name ?? "",
+    anonymous: !!req.body.anonymous,
+    text: req.body.text ?? "",
+    date: req.body.date ?? new Date().toISOString().slice(0, 10),
+    photoUrl: req.body.photoUrl || null,
   };
-  data.comments.push(newComment);
-  writeData(data);
-  res.json(newComment);
+  db.comments.push(comment);
+  writeData(db);
+  res.json(comment);
 });
 
-/* ---------- SERVER ---------- */
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`Server running on http://localhost:${PORT}`)
