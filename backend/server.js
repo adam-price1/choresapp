@@ -1,146 +1,169 @@
 import express from "express";
 import cors from "cors";
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import { nanoid } from "nanoid";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import multer from "multer";
+import fetch from "node-fetch";
 
 const app = express();
-const PORT = process.env.PORT || 5001;
-const DATA_FILE = path.join(__dirname, "data.json");
+const PORT = process.env.PORT || 10000;
+const DATA_FILE = "./backend/data.json";
 
+// ====== Helpers ======
+const readData = () => {
+  if (!fs.existsSync(DATA_FILE)) return { chores: [], users: [] };
+  return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+};
+const writeData = (data) =>
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+
+// ====== Middleware ======
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
-// bootstrap data file
-if (!fs.existsSync(DATA_FILE)) {
-  fs.writeFileSync(
-    DATA_FILE,
-    JSON.stringify({ users: ["Adam", "Mike"], chores: [] }, null, 2)
-  );
-}
+// ====== Multer (photo upload temp handler) ======
+const upload = multer({ storage: multer.memoryStorage() });
 
-const readData = () => JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
-const writeData = (d) =>
-  fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2));
+// ====== Routes ======
 
-/** helpers **/
-const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-const toYMD = (d) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const startOfWeekMon = (dateStr) => {
-  const d = new Date(dateStr);
-  const day = d.getDay(); // 0 Sun..6 Sat
-  const diff = (day === 0 ? -6 : 1) - day; // move to Monday
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-const endOfWeekSun = (dateStr) => {
-  const start = startOfWeekMon(dateStr);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return end;
-};
+// 👥 Get users
+app.get("/api/users", (req, res) => {
+  const db = readData();
+  if (!db.users || db.users.length === 0) db.users = ["Adam", "Mike"]; // default users
+  res.json(db.users);
+});
 
-/* ---------- Routes ---------- */
-app.get("/api/users", (_, res) => res.json(readData().users));
-
+// 📋 Get chores within date range
 app.get("/api/chores", (req, res) => {
-  const { start, end } = req.query; // YYYY-MM-DD
-  let { chores } = readData();
-  if (start && end)
+  const db = readData();
+  let chores = db.chores || [];
+  const { start, end } = req.query;
+
+  if (start && end) {
     chores = chores.filter((c) => c.date >= start && c.date <= end);
+  }
   res.json(chores);
 });
 
+// ➕ Add new chore or "Make your own"
 app.post("/api/chores", (req, res) => {
-  const { title, assignee, type = "Other" } = req.body;
-  const date = req.body.date || req.body.dueDate;
+  const db = readData();
+  const { title, assignee, date, type } = req.body;
 
-  if (!date)
-    return res.status(400).json({ error: "date (or dueDate) required" });
-  if (type !== "NoDinner" && (!title || !assignee)) {
-    return res
-      .status(400)
-      .json({ error: "title and assignee required (except NoDinner)" });
-  }
+  if (!date) return res.status(400).json({ error: "Date is required" });
 
-  // Enforce: at most 2 "NoDinner" per calendar week (Mon–Sun)
+  // Limit Make Your Own to 4 per week
   if (type === "NoDinner") {
-    const data = readData();
-    const start = toYMD(startOfWeekMon(date));
-    const end = toYMD(endOfWeekSun(date));
-    const countThisWeek = data.chores.filter(
+    const startOfWeek = new Date(date);
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1);
+    const start = startOfWeek.toISOString().split("T")[0];
+    const end = new Date(startOfWeek.setDate(startOfWeek.getDate() + 6))
+      .toISOString()
+      .split("T")[0];
+
+    const count = db.chores.filter(
       (c) => c.type === "NoDinner" && c.date >= start && c.date <= end
     ).length;
-    if (countThisWeek >= 2) {
-      return res.status(400).json({
-        error: "Limit reached: only 2 'Make your own' days allowed per week.",
-      });
-    }
+
+    if (count >= 4)
+      return res
+        .status(400)
+        .json({
+          error: "Limit reached: only 4 'Make your own' days per week.",
+        });
   }
 
-  const data = readData();
-  const newChore = {
+  const newItem = {
     id: nanoid(),
-    title: type === "NoDinner" ? "Make your own" : title,
-    assignee: type === "NoDinner" ? "" : assignee,
-    date, // YYYY-MM-DD
-    type, // Dinner | Other | NoDinner
+    title: title || "Untitled",
+    assignee: assignee || "Adam",
+    date,
+    type: type || "Dinner",
     done: false,
-    createdAt: new Date().toISOString(),
+    comments: [],
   };
-  data.chores.push(newChore);
-  writeData(data);
-  res.status(201).json(newChore);
+
+  db.chores.push(newItem);
+  writeData(db);
+  res.json(newItem);
 });
 
+// ✏️ Update chore
 app.put("/api/chores/:id", (req, res) => {
+  const db = readData();
   const { id } = req.params;
-  const data = readData();
-  const i = data.chores.findIndex((c) => c.id === id);
-  if (i === -1) return res.status(404).json({ error: "Not found" });
+  const idx = db.chores.findIndex((c) => c.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Not found" });
 
-  const updates = { ...req.body };
-  if (updates.dueDate && !updates.date) updates.date = updates.dueDate;
-  delete updates.dueDate;
-
-  // Re-check the 2-per-week rule if turning into / moving a NoDinner
-  const next = { ...data.chores[i], ...updates };
-  if (next.type === "NoDinner") {
-    const start = toYMD(startOfWeekMon(next.date));
-    const end = toYMD(endOfWeekSun(next.date));
-    const countThisWeek = data.chores.filter(
-      (c) =>
-        c.id !== id && c.type === "NoDinner" && c.date >= start && c.date <= end
-    ).length;
-    if (countThisWeek >= 2) {
-      return res.status(400).json({
-        error: "Limit reached: only 2 'Make your own' days allowed per week.",
-      });
-    }
-  }
-
-  data.chores[i] = next;
-  writeData(data);
-  res.json(data.chores[i]);
+  db.chores[idx] = { ...db.chores[idx], ...req.body };
+  writeData(db);
+  res.json(db.chores[idx]);
 });
 
+// ❌ Delete chore
 app.delete("/api/chores/:id", (req, res) => {
+  const db = readData();
   const { id } = req.params;
-  const data = readData();
-  const before = data.chores.length;
-  data.chores = data.chores.filter((c) => c.id !== id);
-  if (data.chores.length === before)
-    return res.status(404).json({ error: "Not found" });
-  writeData(data);
-  res.json({ ok: true });
+  db.chores = db.chores.filter((c) => c.id !== id);
+  writeData(db);
+  res.json({ success: true });
 });
 
+// 💬 Add comment (with optional photo)
+app.post(
+  "/api/chores/:id/comment",
+  upload.single("photo"),
+  async (req, res) => {
+    const db = readData();
+    const { id } = req.params;
+    const { name, text } = req.body;
+    const task = db.chores.find((c) => c.id === id);
+    if (!task) return res.status(404).json({ error: "Chore not found" });
+
+    let photoUrl = null;
+    if (req.file && process.env.CLOUDINARY_UPLOAD_URL) {
+      // upload to cloudinary unsigned preset
+      const form = new FormData();
+      form.append("file", req.file.buffer, req.file.originalname);
+      form.append("upload_preset", process.env.CLOUDINARY_PRESET);
+
+      const uploadRes = await fetch(process.env.CLOUDINARY_UPLOAD_URL, {
+        method: "POST",
+        body: form,
+      }).then((r) => r.json());
+
+      photoUrl = uploadRes.secure_url;
+    }
+
+    const comment = {
+      id: nanoid(),
+      name: name || "Anonymous",
+      text: text || "",
+      photo: photoUrl,
+      createdAt: new Date().toISOString(),
+    };
+
+    task.comments = task.comments || [];
+    task.comments.push(comment);
+    writeData(db);
+
+    res.json(comment);
+  }
+);
+
+// 🍳 Get recipe suggestion
+app.get("/api/recipe", async (req, res) => {
+  const q = req.query.q || "dinner";
+  const resp = await fetch(
+    `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(
+      q
+    )}`
+  );
+  const data = await resp.json();
+  res.json(data);
+});
+
+// ====== Start ======
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
