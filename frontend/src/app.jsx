@@ -198,7 +198,7 @@ export default function App() {
     }
   };
 
-  /** Get Recipe for a meal name (uses backend recipe proxy) */
+  /** Get Recipe for a meal name */
   const getRecipe = async (mealTitle) => {
     const q = (mealTitle || "Dinner").trim();
     try {
@@ -233,37 +233,6 @@ export default function App() {
     return map;
   }, [tasks, weekDays]);
 
-  const dinnersThisWeek = useMemo(() => {
-    const count = { Adam: 0, Mike: 0 };
-    tasks
-      .filter((t) => t.type === "Dinner" && t.done)
-      .forEach((t) => {
-        if (count[t.assignee] != null) count[t.assignee]++;
-      });
-    return count;
-  }, [tasks]);
-
-  const dinnersAssigned = useMemo(() => {
-    const count = { Adam: 0, Mike: 0 };
-    tasks
-      .filter((t) => t.type === "Dinner")
-      .forEach((t) => {
-        if (count[t.assignee] != null) count[t.assignee]++;
-      });
-    return count;
-  }, [tasks]);
-
-  const targetPerPerson = 2;
-  const noDinnerCountThisWeek = useMemo(() => {
-    const start = range.start;
-    const end = range.end;
-    return tasks.filter(
-      (t) => t.type === "NoDinner" && t.date >= start && t.date <= end
-    ).length;
-  }, [tasks, range.start, range.end]);
-  const noDinnerDisabled = noDinnerCountThisWeek >= 4;
-
-  /** comments grouped by date for display */
   const commentsByDate = useMemo(() => {
     const map = {};
     for (const c of comments) {
@@ -280,12 +249,81 @@ export default function App() {
     <div className="wrap">
       <header className="header">
         <h1>🗓️ Chores – Weekly Calendar</h1>
-        {/* Week navigation... */}
+        <div className="week-nav">
+          <button onClick={() => setWeekStart(addDays(weekStart, -7))}>
+            ◀ Prev
+          </button>
+          <div>
+            {toYMD(weekDays[0])} – {toYMD(weekDays[6])}
+          </div>
+          <button onClick={() => setWeekStart(addDays(weekStart, 7))}>
+            Next ▶
+          </button>
+          <button onClick={() => setWeekStart(startOfWeekMon(new Date()))}>
+            This Week
+          </button>
+        </div>
       </header>
 
-      {/* Overview ... */}
-
-      {/* Add task ... */}
+      {/* Add task */}
+      <form className="card" onSubmit={addTask}>
+        <h2>Add to calendar</h2>
+        <div className="grid-4">
+          <label>
+            Type
+            <select
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
+            >
+              <option>Dinner</option>
+              <option>Other</option>
+            </select>
+          </label>
+          <label>
+            Title
+            <input
+              placeholder={
+                form.type === "Dinner" ? "Dinner" : "e.g., Do Dishes"
+              }
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+            />
+          </label>
+          <label>
+            Assign to
+            <select
+              value={form.assignee}
+              onChange={(e) => setForm({ ...form, assignee: e.target.value })}
+              disabled={form.type === "NoDinner"}
+            >
+              {users.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Date
+            <input
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+            />
+          </label>
+        </div>
+        <div className="row">
+          <button className="btn">Add</button>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => makeOwnDay(form.date)}
+            disabled={noDinnerDisabled}
+          >
+            Make your own
+          </button>
+        </div>
+      </form>
 
       {/* Comments */}
       <section className="card">
@@ -339,7 +377,6 @@ export default function App() {
             />
           </label>
         </div>
-
         <label>
           Comment
           <textarea
@@ -350,13 +387,107 @@ export default function App() {
             }
           />
         </label>
-
         <button className="btn" onClick={submitComment}>
           Post Comment
         </button>
       </section>
 
-      {/* Calendar ... */}
+      {/* Calendar */}
+      <section className="card">
+        <h2>Week</h2>
+        <div className="calendar">
+          {weekDays.map((d) => {
+            const ymd = toYMD(d);
+            const dayTasks = (tasksByDate[ymd] || []).sort((a, b) =>
+              a.type.localeCompare(b.type)
+            );
+            const isToday = toYMD(new Date()) === ymd;
+            const dayComments = commentsByDate[ymd] || [];
+
+            return (
+              <div className={`day ${isToday ? "today" : ""}`} key={ymd}>
+                <div className="day-head">
+                  <div className="dow">
+                    {d.toLocaleDateString(undefined, { weekday: "short" })}
+                  </div>
+                  <div className="date">{d.getDate()}</div>
+                </div>
+
+                {dayTasks.some((t) => t.type === "NoDinner") && (
+                  <div className="badge nodin">Make your own</div>
+                )}
+
+                <div className="list">
+                  {dayTasks
+                    .filter((t) => t.type !== "NoDinner")
+                    .map((t) => (
+                      <div
+                        className={`item ${
+                          t.type === "Dinner" ? "dinner" : ""
+                        }`}
+                        key={t.id}
+                      >
+                        <label className="check">
+                          <input
+                            type="checkbox"
+                            checked={!!t.done}
+                            onChange={() => toggleDone(t)}
+                          />
+                          <span className={t.done ? "done" : ""}>
+                            {t.type === "Dinner" ? "🍽️ " : "• "}
+                            {t.title} — <b>{t.assignee}</b>
+                          </span>
+                        </label>
+                        <div className="item-actions">
+                          {t.type === "Dinner" && (
+                            <button
+                              className="chip chip-info"
+                              onClick={() => getRecipe(t.title || "Dinner")}
+                            >
+                              Get recipe
+                            </button>
+                          )}
+                          <button className="x" onClick={() => remove(t.id)}>
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+
+                {dayComments.length > 0 && (
+                  <div className="comments">
+                    {dayComments.map((c) => (
+                      <div className="comment" key={c.id}>
+                        <div className="comment-head">
+                          <b>
+                            {c.isAnonymous ? "Anonymous" : c.name || "Unnamed"}
+                          </b>
+                          <span className="comment-time">
+                            {c.createdAt
+                              ? new Date(c.createdAt).toLocaleString()
+                              : ""}
+                          </span>
+                        </div>
+                        {c.text && <div className="comment-text">{c.text}</div>}
+                        {c.photo && (
+                          <a href={c.photo} target="_blank" rel="noreferrer">
+                            <img
+                              className="comment-photo"
+                              src={c.photo}
+                              alt="upload"
+                            />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
