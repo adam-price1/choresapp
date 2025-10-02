@@ -167,7 +167,7 @@ export default function App() {
     const formData = new FormData();
     formData.append("date", commentForm.date);
     formData.append("name", commentForm.isAnonymous ? "" : commentForm.name);
-    formData.append("isAnonymous", commentForm.isAnonymous);
+    formData.append("anonymous", commentForm.isAnonymous);
     formData.append("text", commentForm.text);
     if (commentForm.photoFile) {
       if (commentForm.photoFile.size > 3 * 1024 * 1024) {
@@ -314,7 +314,6 @@ export default function App() {
       {/* Comments */}
       <section className="card">
         <h2>💬 Leave a Comment (optional photo)</h2>
-        {/* comment form ... */}
         <div className="grid-4">
           <label>
             Date
@@ -459,12 +458,14 @@ export default function App() {
                           </span>
                         </div>
                         {c.text && <div className="comment-text">{c.text}</div>}
-                        {c.photo && (
-                          <a href={c.photo} target="_blank" rel="noreferrer">
+
+                        {/* ✅ use photoUrl */}
+                        {c.photoUrl && (
+                          <a href={c.photoUrl} target="_blank" rel="noreferrer">
                             <img
                               className="comment-photo"
-                              src={c.photo}
-                              alt="upload"
+                              src={c.photoUrl}
+                              alt="uploaded"
                             />
                           </a>
                         )}
