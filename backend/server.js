@@ -1,169 +1,124 @@
+// backend/server.js
 import express from "express";
-import cors from "cors";
 import fs from "fs";
-import { nanoid } from "nanoid";
+import path from "path";
+import cors from "cors";
 import multer from "multer";
 import fetch from "node-fetch";
+import { v2 as cloudinary } from "cloudinary";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ✅ Fixed path (works on Render)
+const DATA_FILE = path.join(__dirname, "data.json");
+
+// 🧠 Load or initialize
+function readData() {
+  try {
+    const text = fs.readFileSync(DATA_FILE, "utf8");
+    return JSON.parse(text);
+  } catch {
+    return { chores: [], comments: [], users: ["Adam", "Mike"] };
+  }
+}
+function writeData(data) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-const DATA_FILE = "./backend/data.json";
-
-// ====== Helpers ======
-const readData = () => {
-  if (!fs.existsSync(DATA_FILE)) return { chores: [], users: [] };
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
-};
-const writeData = (data) =>
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-
-// ====== Middleware ======
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json());
 
-// ====== Multer (photo upload temp handler) ======
-const upload = multer({ storage: multer.memoryStorage() });
+// ✅ Configure Cloudinary (optional)
+cloudinary.config({
+  cloud_name: process.env.VITE_CLOUD_NAME,
+  api_key: process.env.VITE_CLOUD_KEY,
+  api_secret: process.env.VITE_CLOUD_SECRET,
+});
 
-// ====== Routes ======
+const upload = multer({ dest: "uploads/" });
 
-// 👥 Get users
+/* ---------- API ROUTES ---------- */
+
 app.get("/api/users", (req, res) => {
-  const db = readData();
-  if (!db.users || db.users.length === 0) db.users = ["Adam", "Mike"]; // default users
-  res.json(db.users);
+  const data = readData();
+  res.json(data.users);
 });
 
-// 📋 Get chores within date range
 app.get("/api/chores", (req, res) => {
-  const db = readData();
-  let chores = db.chores || [];
+  const data = readData();
   const { start, end } = req.query;
-
+  let filtered = data.chores;
   if (start && end) {
-    chores = chores.filter((c) => c.date >= start && c.date <= end);
+    filtered = filtered.filter((t) => t.date >= start && t.date <= end);
   }
-  res.json(chores);
+  res.json(filtered);
 });
 
-// ➕ Add new chore or "Make your own"
 app.post("/api/chores", (req, res) => {
-  const db = readData();
-  const { title, assignee, date, type } = req.body;
-
-  if (!date) return res.status(400).json({ error: "Date is required" });
-
-  // Limit Make Your Own to 4 per week
-  if (type === "NoDinner") {
-    const startOfWeek = new Date(date);
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + 1);
-    const start = startOfWeek.toISOString().split("T")[0];
-    const end = new Date(startOfWeek.setDate(startOfWeek.getDate() + 6))
-      .toISOString()
-      .split("T")[0];
-
-    const count = db.chores.filter(
-      (c) => c.type === "NoDinner" && c.date >= start && c.date <= end
-    ).length;
-
-    if (count >= 4)
-      return res
-        .status(400)
-        .json({
-          error: "Limit reached: only 4 'Make your own' days per week.",
-        });
-  }
-
+  const data = readData();
   const newItem = {
-    id: nanoid(),
-    title: title || "Untitled",
-    assignee: assignee || "Adam",
-    date,
-    type: type || "Dinner",
-    done: false,
-    comments: [],
+    id: Math.random().toString(36).slice(2),
+    createdAt: new Date().toISOString(),
+    ...req.body,
   };
-
-  db.chores.push(newItem);
-  writeData(db);
+  data.chores.push(newItem);
+  writeData(data);
   res.json(newItem);
 });
 
-// ✏️ Update chore
 app.put("/api/chores/:id", (req, res) => {
-  const db = readData();
-  const { id } = req.params;
-  const idx = db.chores.findIndex((c) => c.id === id);
-  if (idx === -1) return res.status(404).json({ error: "Not found" });
-
-  db.chores[idx] = { ...db.chores[idx], ...req.body };
-  writeData(db);
-  res.json(db.chores[idx]);
+  const data = readData();
+  const t = data.chores.find((x) => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Not found" });
+  Object.assign(t, req.body);
+  writeData(data);
+  res.json(t);
 });
 
-// ❌ Delete chore
 app.delete("/api/chores/:id", (req, res) => {
-  const db = readData();
-  const { id } = req.params;
-  db.chores = db.chores.filter((c) => c.id !== id);
-  writeData(db);
+  const data = readData();
+  data.chores = data.chores.filter((x) => x.id !== req.params.id);
+  writeData(data);
   res.json({ success: true });
 });
 
-// 💬 Add comment (with optional photo)
-app.post(
-  "/api/chores/:id/comment",
-  upload.single("photo"),
-  async (req, res) => {
-    const db = readData();
-    const { id } = req.params;
-    const { name, text } = req.body;
-    const task = db.chores.find((c) => c.id === id);
-    if (!task) return res.status(404).json({ error: "Chore not found" });
+// 💬 Comment endpoint (with optional photo upload)
+app.post("/api/comments", upload.single("photo"), async (req, res) => {
+  const data = readData();
+  let photoUrl = null;
 
-    let photoUrl = null;
-    if (req.file && process.env.CLOUDINARY_UPLOAD_URL) {
-      // upload to cloudinary unsigned preset
-      const form = new FormData();
-      form.append("file", req.file.buffer, req.file.originalname);
-      form.append("upload_preset", process.env.CLOUDINARY_PRESET);
-
-      const uploadRes = await fetch(process.env.CLOUDINARY_UPLOAD_URL, {
-        method: "POST",
-        body: form,
-      }).then((r) => r.json());
-
-      photoUrl = uploadRes.secure_url;
+  if (
+    req.file &&
+    process.env.VITE_CLOUD_NAME &&
+    process.env.VITE_CLOUD_PRESET
+  ) {
+    try {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        upload_preset: process.env.VITE_CLOUD_PRESET,
+      });
+      photoUrl = result.secure_url;
+      fs.unlinkSync(req.file.path);
+    } catch (e) {
+      console.error("Cloudinary error:", e.message);
     }
-
-    const comment = {
-      id: nanoid(),
-      name: name || "Anonymous",
-      text: text || "",
-      photo: photoUrl,
-      createdAt: new Date().toISOString(),
-    };
-
-    task.comments = task.comments || [];
-    task.comments.push(comment);
-    writeData(db);
-
-    res.json(comment);
   }
+
+  const newComment = {
+    id: Math.random().toString(36).slice(2),
+    createdAt: new Date().toISOString(),
+    ...req.body,
+    photoUrl,
+  };
+  data.comments.push(newComment);
+  writeData(data);
+  res.json(newComment);
+});
+
+/* ---------- SERVER ---------- */
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () =>
+  console.log(`Server running on http://localhost:${PORT}`)
 );
-
-// 🍳 Get recipe suggestion
-app.get("/api/recipe", async (req, res) => {
-  const q = req.query.q || "dinner";
-  const resp = await fetch(
-    `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(
-      q
-    )}`
-  );
-  const data = await resp.json();
-  res.json(data);
-});
-
-// ====== Start ======
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
