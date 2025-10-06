@@ -30,18 +30,6 @@ const api = {
     remove: async (id) =>
       (await fetch(`${BASE}/api/chores/${id}`, { method: "DELETE" })).json(),
   },
-  comments: {
-    list: async () => (await fetch(`${BASE}/api/comments`)).json(),
-    create: async (formData) =>
-      (
-        await fetch(`${BASE}/api/comments`, {
-          method: "POST",
-          body: formData, // multipart/form-data for text + photo
-        })
-      ).json(),
-  },
-  recipe: async (meal) =>
-    (await fetch(`${BASE}/api/recipe/${encodeURIComponent(meal)}`)).json(),
 };
 
 /** ====== helpers ====== */
@@ -50,8 +38,8 @@ const toYMD = (d) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const startOfWeekMon = (date) => {
   const d = new Date(date);
-  const day = d.getDay(); // 0 Sun..6 Sat
-  const diff = (day === 0 ? -6 : 1) - day; // move to Monday
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
@@ -67,23 +55,12 @@ export default function App() {
   const [users, setUsers] = useState(["Adam", "Mike"]);
   const [weekStart, setWeekStart] = useState(startOfWeekMon(new Date()));
   const [tasks, setTasks] = useState([]);
-  const [comments, setComments] = useState([]);
 
-  // add task form
   const [form, setForm] = useState({
     title: "",
     assignee: "Adam",
     date: toYMD(new Date()),
     type: "Dinner",
-  });
-
-  // comment form
-  const [commentForm, setCommentForm] = useState({
-    date: toYMD(new Date()),
-    name: "",
-    isAnonymous: false,
-    text: "",
-    photoFile: null,
   });
 
   const weekDays = useMemo(
@@ -93,14 +70,6 @@ export default function App() {
   const range = { start: toYMD(weekDays[0]), end: toYMD(weekDays[6]) };
 
   const refreshTasks = async () => setTasks(await api.chores.list(range));
-  const refreshComments = async () => {
-    try {
-      const all = await api.comments.list();
-      setComments(all || []);
-    } catch {
-      setComments([]);
-    }
-  };
 
   useEffect(() => {
     api
@@ -108,8 +77,6 @@ export default function App() {
       .then(setUsers)
       .catch(() => {});
     refreshTasks();
-    refreshComments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart]);
 
   /** CRUD task */
@@ -139,7 +106,7 @@ export default function App() {
     await refreshTasks();
   };
 
-  /** Make-your-own day (NoDinner), capped 4 per current week */
+  /** Make-your-own day (NoDinner), capped 4 per week */
   const makeOwnDay = async (date) => {
     const countThisWeek = tasks.filter(
       (t) =>
@@ -155,45 +122,6 @@ export default function App() {
       title: "Make your own",
     });
     await refreshTasks();
-  };
-
-  /** Comments */
-  const submitComment = async (e) => {
-    e.preventDefault();
-    if (!commentForm.text?.trim() && !commentForm.photoFile) {
-      return alert("Write a comment or add a photo.");
-    }
-
-    const formData = new FormData();
-    formData.append("date", commentForm.date);
-    formData.append("name", commentForm.isAnonymous ? "" : commentForm.name);
-    formData.append("anonymous", commentForm.isAnonymous);
-    formData.append("text", commentForm.text);
-    if (commentForm.photoFile) {
-      if (commentForm.photoFile.size > 3 * 1024 * 1024) {
-        return alert("Image too large. Max 3 MB.");
-      }
-      formData.append("photo", commentForm.photoFile);
-    }
-
-    try {
-      const saved = await api.comments.create(formData);
-      if (saved?.error) {
-        alert(saved.error);
-      } else {
-        setComments((prev) => [saved, ...prev]);
-        setCommentForm((f) => ({
-          ...f,
-          text: "",
-          name: "",
-          isAnonymous: false,
-          photoFile: null,
-        }));
-        alert("Comment posted!");
-      }
-    } catch {
-      alert("Comments API not available on server.");
-    }
   };
 
   /** Derived views */
@@ -214,17 +142,6 @@ export default function App() {
     ).length;
   }, [tasks, range.start, range.end]);
   const noDinnerDisabled = noDinnerCountThisWeek >= 4;
-
-  const commentsByDate = useMemo(() => {
-    const map = {};
-    for (const c of comments) {
-      const key = c.date || "";
-      if (!key) continue;
-      if (!map[key]) map[key] = [];
-      map[key].push(c);
-    }
-    return map;
-  }, [comments]);
 
   /** ====== UI ====== */
   return (
@@ -247,7 +164,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Add task */}
+      {/* Add Task */}
       <form className="card" onSubmit={addTask}>
         <h2>Add to calendar</h2>
         <div className="grid-4">
@@ -311,75 +228,6 @@ export default function App() {
         </div>
       </form>
 
-      {/* Comments */}
-      <section className="card">
-        <h2>💬 Leave a Comment (optional photo)</h2>
-        <div className="grid-4">
-          <label>
-            Date
-            <input
-              type="date"
-              value={commentForm.date}
-              onChange={(e) =>
-                setCommentForm({ ...commentForm, date: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Name (optional)
-            <input
-              placeholder="Your name"
-              value={commentForm.name}
-              onChange={(e) =>
-                setCommentForm({ ...commentForm, name: e.target.value })
-              }
-              disabled={commentForm.isAnonymous}
-            />
-          </label>
-          <label className="checkline">
-            <input
-              type="checkbox"
-              checked={commentForm.isAnonymous}
-              onChange={(e) =>
-                setCommentForm({
-                  ...commentForm,
-                  isAnonymous: e.target.checked,
-                })
-              }
-            />
-            Post as anonymous
-          </label>
-          <label>
-            Photo (optional)
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) =>
-                setCommentForm({
-                  ...commentForm,
-                  photoFile: e.target.files?.[0] || null,
-                })
-              }
-            />
-          </label>
-        </div>
-
-        <label>
-          Comment
-          <textarea
-            placeholder="What did you think? Any notes about dinner?"
-            value={commentForm.text}
-            onChange={(e) =>
-              setCommentForm({ ...commentForm, text: e.target.value })
-            }
-          />
-        </label>
-
-        <button className="btn" onClick={submitComment}>
-          Post Comment
-        </button>
-      </section>
-
       {/* Calendar */}
       <section className="card">
         <h2>Week</h2>
@@ -390,7 +238,6 @@ export default function App() {
               a.type.localeCompare(b.type)
             );
             const isToday = toYMD(new Date()) === ymd;
-            const dayComments = commentsByDate[ymd] || [];
 
             return (
               <div className={`day ${isToday ? "today" : ""}`} key={ymd}>
@@ -427,14 +274,6 @@ export default function App() {
                           </span>
                         </label>
                         <div className="item-actions">
-                          {t.type === "Dinner" && (
-                            <button
-                              className="chip chip-info"
-                              onClick={() => getRecipe(t.title || "Dinner")}
-                            >
-                              Get recipe
-                            </button>
-                          )}
                           <button className="x" onClick={() => remove(t.id)}>
                             ×
                           </button>
@@ -442,37 +281,6 @@ export default function App() {
                       </div>
                     ))}
                 </div>
-
-                {dayComments.length > 0 && (
-                  <div className="comments">
-                    {dayComments.map((c) => (
-                      <div className="comment" key={c.id}>
-                        <div className="comment-head">
-                          <b>
-                            {c.isAnonymous ? "Anonymous" : c.name || "Unnamed"}
-                          </b>
-                          <span className="comment-time">
-                            {c.createdAt
-                              ? new Date(c.createdAt).toLocaleString()
-                              : ""}
-                          </span>
-                        </div>
-                        {c.text && <div className="comment-text">{c.text}</div>}
-
-                        {/* ✅ use photoUrl */}
-                        {c.photoUrl && (
-                          <a href={c.photoUrl} target="_blank" rel="noreferrer">
-                            <img
-                              className="comment-photo"
-                              src={c.photoUrl}
-                              alt="uploaded"
-                            />
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             );
           })}
