@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-/** ====== Config ====== */
-const BASE = import.meta.env.VITE_API_URL || ""; // e.g. https://choresapp-backend.onrender.com
+const BASE = import.meta.env.VITE_API_URL || "";
 
-/** ====== API ====== */
 const api = {
   users: async () => (await fetch(`${BASE}/api/users`)).json(),
   chores: {
@@ -32,7 +30,6 @@ const api = {
   },
 };
 
-/** ====== helpers ====== */
 const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
 const toYMD = (d) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -50,7 +47,6 @@ const addDays = (date, n) => {
   return d;
 };
 
-/** ====== Component ====== */
 export default function App() {
   const [users, setUsers] = useState(["Adam", "Mike"]);
   const [weekStart, setWeekStart] = useState(startOfWeekMon(new Date()));
@@ -72,14 +68,10 @@ export default function App() {
   const refreshTasks = async () => setTasks(await api.chores.list(range));
 
   useEffect(() => {
-    api
-      .users()
-      .then(setUsers)
-      .catch(() => {});
+    api.users().then(setUsers);
     refreshTasks();
   }, [weekStart]);
 
-  /** CRUD task */
   const addTask = async (e) => {
     e.preventDefault();
     if (!form.date) return alert("Pick a date!");
@@ -106,7 +98,6 @@ export default function App() {
     await refreshTasks();
   };
 
-  /** Make-your-own day (NoDinner), capped 4 per week */
   const makeOwnDay = async (date) => {
     const countThisWeek = tasks.filter(
       (t) =>
@@ -124,7 +115,6 @@ export default function App() {
     await refreshTasks();
   };
 
-  /** Derived views */
   const tasksByDate = useMemo(() => {
     const map = {};
     for (const d of weekDays) map[toYMD(d)] = [];
@@ -135,15 +125,6 @@ export default function App() {
     return map;
   }, [tasks, weekDays]);
 
-  const noDinnerCountThisWeek = useMemo(() => {
-    return tasks.filter(
-      (t) =>
-        t.type === "NoDinner" && t.date >= range.start && t.date <= range.end
-    ).length;
-  }, [tasks, range.start, range.end]);
-  const noDinnerDisabled = noDinnerCountThisWeek >= 4;
-
-  /** ====== UI ====== */
   return (
     <div className="wrap">
       <header className="header">
@@ -164,7 +145,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Add Task */}
       <form className="card" onSubmit={addTask}>
         <h2>Add to calendar</h2>
         <div className="grid-4">
@@ -221,14 +201,12 @@ export default function App() {
             type="button"
             className="btn ghost"
             onClick={() => makeOwnDay(form.date)}
-            disabled={noDinnerDisabled}
           >
             Make your own
           </button>
         </div>
       </form>
 
-      {/* Calendar */}
       <section className="card">
         <h2>Week</h2>
         <div className="calendar">
@@ -273,11 +251,9 @@ export default function App() {
                             {t.title} — <b>{t.assignee}</b>
                           </span>
                         </label>
-                        <div className="item-actions">
-                          <button className="x" onClick={() => remove(t.id)}>
-                            ×
-                          </button>
-                        </div>
+                        <button className="x" onClick={() => remove(t.id)}>
+                          ×
+                        </button>
                       </div>
                     ))}
                 </div>
